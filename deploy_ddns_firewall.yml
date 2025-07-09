@@ -1,0 +1,56 @@
+---
+- name: Deploy and config DDNS Firewall script
+  hosts: all
+  gather_facts: true
+
+  tasks:
+    - name: Check dig command
+      shell: command -v dig
+      register: dig_check
+      ignore_errors: yes
+
+    - name: Install bind-utils package
+      yum:
+        name: bind-utils
+        state: present
+      when: dig_check.rc != 0
+
+    - name: Check scripts path
+      file:
+        path: /ops/scripts
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    #- name: Get external IP address
+    #  shell: curl -s http://icanhazip.com | grep -Po '([0-9]{1,3}\.){3}[0-9]{1,3}'
+    #  register: external_ip
+
+    #- name: Get default route interface
+    #  shell: ip route show default | awk '/^default/{print $5}'
+    #  register: interface
+
+    - name: Template ddns firewall script
+      template:
+        src: templates/scripts/ddns_firewall.sh.j2
+        dest: /ops/scripts/ddns_firewall.sh
+        owner: root
+        group: root
+        mode: '0700'
+      #when: external_ip is defined and external_ip.stdout | trim != ""
+
+    - name: Template ddns firewall service
+      template:
+        src: templates/scripts/ddns_firewall.service.j2
+        dest: /etc/systemd/system/ddns-firewall.service
+        owner: root
+        group: root
+        mode: '0644'
+    
+    - name: Reload systemd and start service
+      systemd:
+        name: ddns-firewall
+        state: restarted
+        enabled: yes
+        daemon_reload: yes
