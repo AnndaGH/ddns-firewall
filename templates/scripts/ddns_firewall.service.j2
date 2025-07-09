@@ -1,0 +1,11 @@
+[Unit]
+Description=Firewall based on DDNS
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+ExecStart=/bin/bash /ops/scripts/ddns_firewall.sh
+
+[Install]
+WantedBy=multi-user.target
