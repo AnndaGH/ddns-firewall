@@ -1,0 +1,7 @@
+all:
+  vars:
+    ansible_user: root
+  hosts:
+    123.123.123.123:
+      ansible_password: yourpassword
+      v_script_ddns_firewall_ports: 22,3306
