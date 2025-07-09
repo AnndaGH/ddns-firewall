@@ -1,0 +1,95 @@
+#!/bin/bash
+# ----------------------------------------
+# Firewall based on DDNS
+# Ver 1.2 Update 2025/04/02
+# Author Annda
+# ----------------------------------------
+
+# find the DNS server associated with a specific domain name
+# you can look it up at https://whois.chinaz.com/
+# format: domain/dns
+domains='{{ v_script_ddns_firewall_domain|default("www.annda.net/karina.ns.cloudflare.com") }}'
+trust_ips='{{ v_script_ddns_firewall_trust_ips|default("1.1.1.1") }}'
+ports='{{ v_script_ddns_firewall_ports|default("22") }}'
+
+# print log to /var/log/message, 0: disable, 1: enable
+debug='{{ v_script_ddns_firewall_debug|default(0) }}'
+debug_exclude_ports='{{ v_script_ddns_firewall_debug_exclude_ports|default("22,80,443") }}'
+
+interface='{{ ansible_default_ipv4.interface }}'
+external_ip='{{ inventory_hostname }}'
+
+trap 'clean_ddns_firewall' INT
+trap 'clean_ddns_firewall' TERM
+
+function update_ddns_firewall {
+    /usr/sbin/iptables -t nat -F ddns_firewall
+    /usr/sbin/iptables -t nat -A ddns_firewall -s $(ip add show ${interface} | grep -Po '(?<=inet )([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}') -j RETURN
+    /usr/sbin/iptables -t nat -A ddns_firewall -s ${external_ip}/32 -j RETURN
+    for trust_ip in $trust_ips; do
+        /usr/sbin/iptables -t nat -A ddns_firewall -s ${trust_ip}/32 -j RETURN
+    done
+    for domain in $domains; do
+        ddns_ip=`dig @${domain##*/} +short ${domain%%/*} | head -n1 | grep -Po '([0-9]{1,3}\.){3}[0-9]{1,3}'`
+        if [ ! -z $ddns_ip ]; then
+            /usr/sbin/iptables -t nat -A ddns_firewall -s ${ddns_ip}/32 -j RETURN
+        fi
+    done
+    [ $debug -eq 1 ] && /usr/sbin/iptables -t nat -A ddns_firewall -p tcp -m multiport --dports ${debug_exclude_ports} -j RETURN
+    [ $debug -eq 1 ] && /usr/sbin/iptables -t nat -A ddns_firewall -j LOG --log-prefix='[ddns-firewall-prerouting] '
+    /usr/sbin/iptables -t nat -A ddns_firewall -p tcp -m multiport --dports $ports -j MARK --set-mark 2
+}
+
+function clean_ddns_firewall {
+    /usr/sbin/iptables -t nat -D PREROUTING -i ${interface} -p tcp -j ddns_firewall &> /dev/null
+    /usr/sbin/iptables -t nat -F ddns_firewall &> /dev/null
+    /usr/sbin/iptables -t nat -X ddns_firewall &> /dev/null
+    /usr/sbin/iptables -t filter -D INPUT -m mark --mark 2 -j ddns_firewall_input &> /dev/null
+    /usr/sbin/iptables -t filter -D FORWARD -m mark --mark 2 -j ddns_firewall_forward &> /dev/null
+    /usr/sbin/iptables -t filter -F ddns_firewall_input &> /dev/null
+    /usr/sbin/iptables -t filter -X ddns_firewall_input &> /dev/null
+    /usr/sbin/iptables -t filter -F ddns_firewall_forward &> /dev/null
+    /usr/sbin/iptables -t filter -X ddns_firewall_forward &> /dev/null
+    exit 0
+}
+
+# clean iptables rule
+if [ $# -ge 1 ] && [ $1 == "clean" ]; then
+    clean_ddns_firewall
+fi
+
+# check ddns firewall chain
+/usr/sbin/iptables -t nat -xvnL ddns_firewall &> /dev/null
+if [ $? -eq 1 ]; then
+    /usr/sbin/iptables -t nat -N ddns_firewall &> /dev/null
+    if [ $? -eq 0 ]; then
+        /usr/sbin/iptables -t nat -I PREROUTING 1 -i ${interface} -p tcp -j ddns_firewall
+    fi
+    /usr/sbin/iptables -t filter -N ddns_firewall_input &> /dev/null
+    if [ $? -eq 0 ]; then
+        /usr/sbin/iptables -t filter -I INPUT 1 -m mark --mark 2 -j ddns_firewall_input
+        [ $debug -eq 1 ] && /usr/sbin/iptables -t filter -A ddns_firewall_input -j LOG --log-prefix='[ddns-firewall-input] '
+        [ $debug -eq 0 ] && /usr/sbin/iptables -t filter -A ddns_firewall_input -j DROP
+    fi
+    /usr/sbin/iptables -t filter -N ddns_firewall_forward &> /dev/null
+    if [ $? -eq 0 ]; then
+        /usr/sbin/iptables -t filter -I FORWARD 1 -m mark --mark 2 -j ddns_firewall_forward
+        [ $debug -eq 1 ] && /usr/sbin/iptables -t filter -A ddns_firewall_forward -j LOG --log-prefix='[ddns-firewall-forward] '
+        [ $debug -eq 0 ] && /usr/sbin/iptables -t filter -A ddns_firewall_forward -j DROP
+    fi
+fi
+
+# check ddns ip
+while true; do
+    for domain in $domains; do
+        ddns_ip=`dig @${domain##*/} +short ${domain%%/*} | head -n1 | grep -Po '([0-9]{1,3}\.){3}[0-9]{1,3}'`
+        if [ ! -z $ddns_ip ]; then
+            /usr/sbin/iptables -t nat -xvnL ddns_firewall | grep -q ${ddns_ip}
+            if [ $? -ne 0 ]; then
+                update_ddns_firewall
+                break
+            fi
+        fi
+    done
+    sleep 120
+done
