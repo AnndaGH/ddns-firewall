@@ -6,11 +6,11 @@
 
 domains='www.annda.net/karina.ns.cloudflare.com ddns.annda.net/114.114.114.114'
 
-可信IP：一般填写跳板机或其他授信的云节点静态IP
+可信IP：一般填写跳板机或其他授信的云节点静态IP，多个IP使用半角符逗号分隔
 
-trust_ips='1.1.1.1'
+trust_ips='1.1.1.1,2.2.2.2'
 
-端口：脚本需要处理拦截的端口
+端口：脚本需要处理拦截的端口，多个端口使用半角符逗号分隔
 
 ports='22,3306'
 
@@ -18,7 +18,7 @@ ports='22,3306'
 
 debug='0'
 
-对以下端口不做记录
+对以下端口不做记录，多个端口使用半角符逗号分隔
 
 debug_exclude_ports='22,80,443'
 
@@ -28,4 +28,4 @@ interface='eth0'
 
 公网IP：当前云服务器的公网IP，避免应用填写公网IP，环路至云防火墙回到云服务器被拦截
 
-external_ip='{{ inventory_hostname }}'
+external_ip='123.123.123.123'
