@@ -1,7 +1,7 @@
 #!/bin/bash
 # ----------------------------------------
 # Firewall based on DDNS
-# Ver 1.2 Update 2025/04/02
+# Ver 1.3 Update 2025/08/04
 # Author Annda
 # ----------------------------------------
 
@@ -24,7 +24,9 @@ trap 'clean_ddns_firewall' TERM
 
 function update_ddns_firewall {
     /usr/sbin/iptables -t nat -F ddns_firewall
-    /usr/sbin/iptables -t nat -A ddns_firewall -s $(ip add show ${interface} | grep -Po '(?<=inet )([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}') -j RETURN
+    /usr/sbin/iptables -t nat -A ddns_firewall -s 10.0.0.0/8 -j RETURN
+    /usr/sbin/iptables -t nat -A ddns_firewall -s 172.16.0.0/12 -j RETURN
+    /usr/sbin/iptables -t nat -A ddns_firewall -s 192.168.0.0/16 -j RETURN
     /usr/sbin/iptables -t nat -A ddns_firewall -s ${external_ip}/32 -j RETURN
     for trust_ip in $trust_ips; do
         /usr/sbin/iptables -t nat -A ddns_firewall -s ${trust_ip}/32 -j RETURN
@@ -91,5 +93,11 @@ while true; do
             fi
         fi
     done
+    # check the order of the ddns_firewall_forward rule in the FORWARD chain
+    line_number=$(iptables -xvnL FORWARD --line-number | awk '$4=="ddns_firewall_forward"{print $1}')
+    if [ -z "$line_number" ] || [ "$line_number" -ne 1 ]; then
+        /usr/sbin/iptables -t filter -D FORWARD -m mark --mark 2 -j ddns_firewall_forward &> /dev/null
+        /usr/sbin/iptables -t filter -I FORWARD 1 -m mark --mark 2 -j ddns_firewall_forward
+    fi
     sleep 120
 done
